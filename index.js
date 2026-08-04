@@ -79,8 +79,10 @@ async function sendAlert(alert) {
 
     await sendAlert(alert);
   } catch (error) {
-    // Report only the message. Never surface the error object: for a request
-    // failure it carries the request config, whose data field is the body.
-    core.setFailed(`PagerDuty alert failed: ${error.message}`);
+    // Report only the message, never the error object: for a request failure the
+    // object carries the request config, whose data field is the request body.
+    // (An Error's message and stack do not — only inspecting the object leaks it.)
+    const reason = error instanceof Error ? error.message : String(error);
+    core.setFailed(`PagerDuty alert failed: ${reason}`);
   }
 })();
