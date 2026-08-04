@@ -10,7 +10,22 @@ async function sendAlert(alert) {
     'Content-Type': 'application/json',
   };
 
-  const response = await axios.post('https://events.pagerduty.com/v2/enqueue', alert, {headers: headers});
+  let response;
+  try {
+    response = await axios.post('https://events.pagerduty.com/v2/enqueue', alert, {headers: headers});
+  } catch (error) {
+    // Report only the status and PagerDuty's own error body. Never surface the
+    // error object itself: axios attaches the full request config, and
+    // config.data is the request body, which carries the routing key.
+    if (error.response) {
+      core.setFailed(
+        `PagerDuty API returned status code ${error.response.status} - ${JSON.stringify(error.response.data)}`
+      );
+    } else {
+      core.setFailed(`PagerDuty API request failed: ${error.message}`);
+    }
+    return;
+  }
 
   if (response.status === 202) {
     core.info(`Successfully sent PagerDuty alert. Response: ${JSON.stringify(response.data)}`);
@@ -27,6 +42,13 @@ async function sendAlert(alert) {
   const integrationKey = core.getInput('pagerduty-integration-key');
   core.info('Reading pagerduty-integration-key');
 
+  // Not sure why we see an extra `$` sign at the front of the key, but
+  // skipping the first char here to make a correct API call.
+  const routingKey = integrationKey.substring(1);
+  // Register with the runner so it redacts the key from all log output, in case
+  // any future code path ends up printing the request body.
+  core.setSecret(routingKey);
+
   let alert = {
     payload: {
       summary: `${context.repo.repo}: Error in "${context.workflow}" run by @${context.actor}`,
@@ -37,9 +59,7 @@ async function sendAlert(alert) {
         run_details: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
       },
     },
-    // Not sure why we see an extra `$` sign at the front of the key, but
-    // skipping the first char here to make a correct API call.
-    routing_key: integrationKey.substring(1), 
+    routing_key: routingKey,
     event_action: 'trigger',
   };
   core.info('Forming default request body');
